@@ -2,19 +2,160 @@
 
 
 ## Loading and preprocessing the data
+This file assumes that the data set is unzipped in the same location as the
+source file (this file). Make sure to set your working directory.
 
+First, let's read in the data file:
+```{r}
+activity_data <- read.csv('activity.csv', header=TRUE)
+head(activity_data)
+```
 
+Now it's read in, we want to make sure that each of the variables (columns) is
+in the appropriate form (i.e. data type). Let's take a look at what we have:
 
+```{r}
+summary(activity_data)
+class(activity_data$steps)
+class(activity_data$date)
+class(activity_data$interval)
+```
+
+So we can see that steps and interval are integers, which is great. However,
+the date variable would be more suitable as an actual date/time type for our
+analysis later.
+
+Let's convert it:
+
+```{r}
+activity_data$date <- as.Date(activity_data$date)
+class(activity_data$date)
+summary(activity_data)
+```
+
+Finally, let's convert it to a data table for some easy grouping later.
+Note: you'll need the data.table package.
+
+```{r}
+library(data.table)
+activity_dt <- data.table(activity_data)
+```
 ## What is mean total number of steps taken per day?
+Okay, now everything is loaded nicely, let's find the mean total number of steps
+and print it:
 
+```{r}
+daily_steps <- activity_dt[,list(steps=sum(steps)),by=date]
+head(daily_steps)
+mean_steps <- mean(daily_steps$steps)
+mean_steps
+```
 
+But, we can see that the NAs are causing problems. Let's ignore them for now:
+
+```{r}
+mean_steps <- mean(daily_steps$steps, na.rm=TRUE)
+mean_steps
+```
+
+Now we can see that the mean is actually `r mean_steps`.
+Similarly, let's look at a histogram of daily steps as well as the median.
+
+```{r}
+median_steps <- median(daily_steps$steps, na.rm=TRUE)
+median_steps
+hist(daily_steps$steps)
+```
 
 ## What is the average daily activity pattern?
+To look at the daily activity pattern, let's first group the average steps
+by interval. Note that looking at the data, we have matching intervals on
+each day, so we can just group these in our data table. Then we can plot the
+time series as follows:
 
+```{r}
+interval_series <- activity_dt[,list(steps=mean(steps, na.rm=TRUE)),by=interval]
+head(interval_series)
+plot(steps ~ interval, data=interval_series, type ='l')
+title(main='Average Steps By Interval')
+```
 
+Using our series, we can find the max average interval and plot a line to show
+it. 
+
+```{r}
+max_interval <- interval_series[which.max(interval_series$steps),]
+max_interval
+plot(steps ~ interval, data=interval_series, type ='l')
+title(main='Average Steps By Interval')
+abline(v=max_interval$interval, col='red')
+```
+
+So, we see that the max interval is at `r max_interval$interval`. If we knew
+that the 0 interval was midnight, we could find the corresponding time period.
 
 ## Imputing missing values
 
+First, let's look at a summary of the original data set to look for NAs.
+```{r}
+summary(activity_data)
+```
 
+So it looks like date and interval are clean, but steps has 2304 NA values. We
+can impute the missing data using the median for the corresponding interval.
+
+```{r}
+interval_medians <- activity_dt[,list(steps=median(steps, na.rm=TRUE)),by=interval]
+cleaned_data <- activity_data
+for (i in 1:nrow(cleaned_data)) {
+        observation <- cleaned_data[i,]
+        if (is.na(observation$steps)) {
+                imputed <- interval_medians[interval_medians$interval == observation$interval,][1,]$steps
+                cleaned_data[i,]$steps <- imputed
+        }
+}
+summary(activity_data)
+summary(cleaned_data)
+```
+
+So now we have imputed the data, let's repeat the mean, median, histogram work.
+
+```{r}
+clean_dt <- data.table(cleaned_data)
+daily_steps_clean <- clean_dt[,list(steps=sum(steps)),by=date]
+mean_steps_clean <- mean(daily_steps_clean$steps)
+mean_steps_clean
+
+median_steps_clean <- median(daily_steps_clean$steps)
+median_steps_clean
+
+hist(daily_steps_clean$steps)
+```
+
+So we can see that mean, median and distribution has changed rather dramatically
+with the imputed data. The mean and median hae decreased, with an increase of
+days with fewer steps and corresponding skew of the distribution to the left.
 
 ## Are there differences in activity patterns between weekdays and weekends?
+To look for differences between weekdays and weekends, we need to first tag each
+day as a weekday or weekend. We can then create our interval summary and plot
+it.
+
+```{r}
+get_weekday <- function(date) {
+        ifelse (weekdays(date) == 'Saturday' | weekdays(date) == 'Sunday', 
+                'Weekend', 'Weekday')
+}
+cleaned_data$day <- as.factor(get_weekday(as.Date(cleaned_data$date)))
+summary(cleaned_data)
+
+cleaned_dt <- data.table(cleaned_data)
+day_interval_series <- cleaned_dt[,list(steps=mean(steps, na.rm=TRUE)),by=list(interval,day)]
+head(day_interval_series)
+
+library(lattice)
+xyplot(steps ~ interval | day, data=day_interval_series, type='l', layout=c(1,2),
+       main="Steps by Interval for Weekends and Weekdays")
+```
+
+So from the plots, we can see that there is a higher peak period during weekdays, but more consistent activity over weekends.
